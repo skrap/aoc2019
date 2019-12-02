@@ -12,15 +12,11 @@ fn main() {
         lines
             .lines()
             .map(|s| {
-                let mut total = s.parse::<i32>().unwrap() / 3 - 2;
-                let mut extra_fuel = total / 3 - 2;
-                loop {
-                    if extra_fuel > 0 {
-                        total += extra_fuel;
-                        extra_fuel = extra_fuel / 3 - 2;
-                    } else {
-                        break;
-                    }
+                let mut total = 0;
+                let mut load = s.parse::<i32>().unwrap() / 3 - 2;
+                while load > 0 {
+                    total += load;
+                    load = load / 3 - 2;
                 }
                 total
             })
