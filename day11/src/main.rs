@@ -199,7 +199,7 @@ fn main() {
     for y in min.1..=max.1 {
         for x in min.0..=max.0 {
             if let Some(1) = map.get(&(x,y)) {
-                print!("#");
+                print!("█");
             } else {
                 print!(" ");
             }
