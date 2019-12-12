@@ -1,19 +1,20 @@
 use itertools::*;
 
+#[derive(Debug)]
 struct Moon {
-    pos: (isize,isize,isize),
-    vel: (isize,isize,isize),
+    pos: (isize, isize, isize),
+    vel: (isize, isize, isize),
 }
 
 impl Moon {
     fn energy(&self) -> isize {
-        // Then, it might help to calculate the total energy in the system. 
-        
-        // A moon's potential energy is the sum of the absolute values of its x, y, and z position coordinates. 
+        // Then, it might help to calculate the total energy in the system.
+
+        // A moon's potential energy is the sum of the absolute values of its x, y, and z position coordinates.
         let pot_e = self.pos.0.abs() + self.pos.1.abs() + self.pos.2.abs();
         // A moon's kinetic energy is the sum of the absolute values of its velocity coordinates.
         let kin_e = self.vel.0.abs() + self.vel.1.abs() + self.vel.2.abs();
-        // The total energy for a single moon is its potential energy multiplied by its kinetic energy.         
+        // The total energy for a single moon is its potential energy multiplied by its kinetic energy.
         pot_e * kin_e
     }
 }
@@ -29,23 +30,23 @@ fn step(moons: &mut [Moon]) {
 
     // To apply gravity, consider every pair of moons. On each axis (x, y, and z), the velocity of each moon changes by exactly +1 or -1 to pull the moons together. For example, if Ganymede has an x position of 3, and Callisto has a x position of 5, then Ganymede's x velocity changes by +1 (because 5 > 3) and Callisto's x velocity changes by -1 (because 3 < 5). However, if the positions on a given axis are the same, the velocity on that axis does not change for that pair of moons.
 
-    for (a,b) in (0..moons.len()).tuple_combinations() {
-        assert!(a<b);
-        let (a,b) = {
-            let (group1,group2) = moons.split_at_mut(b);
-            (&mut group1[a],&mut group2[0])
+    for (a, b) in (0..moons.len()).tuple_combinations() {
+        assert!(a < b);
+        let (a, b) = {
+            let (group1, group2) = moons.split_at_mut(b);
+            (&mut group1[a], &mut group2[0])
         };
         fn gravitate(a: &mut isize, b: &mut isize, va: &mut isize, vb: &mut isize) {
             match a.cmp(&b) {
                 Greater => {
                     *va -= 1;
                     *vb += 1;
-                },
+                }
                 Less => {
                     *va += 1;
                     *vb -= 1;
                 }
-                _ => ()
+                _ => (),
             }
         }
         gravitate(&mut a.pos.0, &mut b.pos.0, &mut a.vel.0, &mut b.vel.0);
@@ -62,17 +63,38 @@ fn step(moons: &mut [Moon]) {
 }
 
 fn main() {
-    /* Each moon has a 3-dimensional position (x, y, and z) and a 3-dimensional velocity. The position of each moon is given in your scan; the x, y, and z velocity of each moon starts at 0.*/    
-    let mut moons : Vec<_> = [
-        (17,  -12, 13),
-        (2,  1, 1),
-        (-1,  -17, 7),
-        (12,  -14, 18),
-    ].iter().map(|&pos| Moon {pos, vel: (0,0,0)}).collect();
+    /* Each moon has a 3-dimensional position (x, y, and z) and a 3-dimensional velocity. The position of each moon is given in your scan; the x, y, and z velocity of each moon starts at 0.*/
+    let mut moons: Vec<_> = [(17, -12, 13), (2, 1, 1), (-1, -17, 7), (12, -14, 18)]
+        .iter()
+        .map(|&pos| Moon {
+            pos,
+            vel: (0, 0, 0),
+        })
+        .collect();
 
-    for _ in 0..1000 {
+    let mut x_still = Vec::new();
+    let mut y_still = Vec::new();
+    let mut z_still = Vec::new();
+    for step_num in 1_isize.. {
         step(&mut moons);
+        if step_num == 1000 {
+            println!("Total energy after 1000 steps: {}", energy(&moons));
+        }
+        if moons.iter().all(|m| m.vel.0 == 0) {
+            x_still.push(step_num);
+        }
+        if moons.iter().all(|m| m.vel.1 == 0) {
+            y_still.push(step_num);
+        }
+        if moons.iter().all(|m| m.vel.2 == 0) {
+            z_still.push(step_num);
+        }
+        if !z_still.is_empty() && !x_still.is_empty() && !y_still.is_empty() {
+            break;
+        }
     }
-
-    println!("Total energy after 1000 steps: {}", energy(&moons));    
+    println!(
+        "Predicted repeat after step {}",
+        x_still[0] * y_still[0] * z_still[0]
+    )
 }
