@@ -202,8 +202,8 @@ fn run_part2(mut mem: Vec<isize>) {
                 });
                 // use input as a chance to flush and induce some delay.
                 use std::io::Write;
-                std::thread::sleep(std::time::Duration::from_millis(1));
                 let _ = std::io::stdout().lock().flush();    
+                std::thread::sleep(std::time::Duration::from_millis(1));
             },
         }
         while comp.output.len() >= 3 {
