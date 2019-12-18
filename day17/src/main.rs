@@ -195,9 +195,12 @@ fn run_part1(mem: Vec<isize>) {
     }
     println!("alignment sum: {}", alignment_sum);
 
-    let start_pos = scaffolds.iter().find(|(_pos,val)| **val == '^').unwrap().0;
+    let start_pos = scaffolds.iter().find(|(_pos, val)| **val == '^').unwrap().0;
     let mut dirs = String::new();
-    let mut bot = Bot { pos: *start_pos, dir: Dir::North };
+    let mut bot = Bot {
+        pos: *start_pos,
+        dir: Dir::North,
+    };
     loop {
         if let Some('#') = scaffolds.get(&bot.to_front()) {
             dirs += "F";
@@ -212,24 +215,189 @@ fn run_part1(mem: Vec<isize>) {
             break;
         }
     }
-    println!("bot ended at {},{} with {} directions {}", bot.pos.0, bot.pos.1, dirs.len(), dirs);
-    let dirs : Vec<_> = dirs.bytes().collect();
-    let compressed = compress(&dirs);
+    println!(
+        "bot ended at {},{} with {} directions {}",
+        bot.pos.0,
+        bot.pos.1,
+        dirs.len(),
+        dirs
+    );
+    let compressed = compress(&dirs).pop().unwrap();
+
+    comp.mem[0] = 2;
+    comp.input.extend(compressed.chars().map(|c| c as isize));
+    comp.input.extend(['n' as isize, '\n' as isize].iter());
+    while let State::Run = comp.step() {}
+    println!("final output = {:?}", comp.output);
 }
 
-fn compress(input: &[u8]) {
-    let big_l = loop {
-        for 
-    };
+fn compress1(input: &str) -> String {
+    let mut sections: Vec<&str> = Vec::new();
+    let mut words: Vec<&str> = Vec::new();
+    sections.push(input);
+    loop {
+        sections.sort_by_key(|s| s.len());
+        if let Some(section) = sections.last() {
+            let (word, score) = (1..=(section.len()))
+                .map(|len| {
+                    let substr = &section[0..len];
+                    let count = sections
+                        .iter()
+                        .map(|sect| sect.match_indices(substr).count())
+                        .sum::<usize>();
+                    let score = substr.chars().filter(|&c| c != 'F').count();
+                    (substr, score)
+                })
+                .filter(|(substr, score)| encode(substr).len() < 20)
+                .max_by_key(|(_, score)| *score)
+                .unwrap();
+            words.push(word);
+            sections = sections
+                .iter()
+                .map(|sect| sect.split(word).filter(|&sect| sect != ""))
+                .flatten()
+                .collect();
+        } else {
+            break;
+        }
+    }
+
+    let mut output = String::new();
+    use std::fmt::Write;
+    for word in &words {
+        writeln!(&mut output, "{}", encode(word));
+    }
+    let mut pos = 0;
+    'outer: while pos < input.len() {
+        for (i, word) in words.iter().enumerate() {
+            if input[pos..].starts_with(word) {
+                let cmd = std::char::from_u32(65 + i as u32).unwrap();
+                write!(&mut output, "{}{}", if pos > 0 { "," } else { "" }, cmd);
+                pos += word.len();
+                continue 'outer;
+            }
+        }
+        panic!("unknown sequence: {}", &input[pos..]);
+    }
+    writeln!(&mut output);
+    println!("{}", output);
+    output
 }
 
-// LFFFFFFFFRFFFFFFFFFFFFLFFFFFFFFLFFFFFFFFRFFFFFFFFFFFFLFFFFFFFFRFFFFFFFFFFRFFFFFFFFFFLFFFFFFFFRFFFFFFFFFFFFRFFFFFFFFFFFFRFFFFFFFFFFLFFFFFFFFFFRFFFFFFFFFFRFFFFFFFFFFLFFFFFFFFRFFFFFFFFFFFFRFFFFFFFFFFFFRFFFFFFFFFFLFFFFFFFFFFRFFFFFFFFFFRFFFFFFFFFFLFFFFFFFFLFFFFFFFFRFFFFFFFFFFFFLFFFFFFFFRFFFFFFFFFFFFRFFFFFFFFFFFFRFFFFFFFFFFLFFFFFFFFFFLFFFFFFFFRFFFFFFFFFFFFLFFFFFFFF
+fn compress(input: &str) -> Vec<String> {
+    let mut result = Vec::new();
+    let max1 = (1..input.len())
+        .rev()
+        .find(|len| encode(&input[0..*len]).len() <= 20)
+        .unwrap();
+    for split1 in (1..max1).rev() {
+        if let Some(max2) = (1..(input.len() - split1))
+            .rev()
+            .find(|len| encode(&input[split1..(split1 + len)]).len() <= 20)
+        {
+            let (str1, rest) = input.split_at(split1);
+
+            'split2: for (split2, split3) in (1..max2).rev().cartesian_product(1..input.len() / 2) {
+                if split1 + split2 + split3 > input.len() {
+                    continue;
+                }
+                let (str2, _rest) = rest.split_at(split2);
+                let mut strs = vec![str1, str2];
+                let mut subs = Vec::new();
+
+                let mut pos = 0;
+
+                if encode(str1).len() > 20 || encode(str2).len() > 20 {
+                    continue;
+                }
+
+                // encode a word
+                'next_word: while pos < input.len() {
+                    for (i, s) in strs.iter().enumerate() {
+                        if input[pos..].starts_with(s) {
+                            pos += s.len();
+                            subs.push(i);
+                            if subs.len() > 11 {
+                                continue 'split2;
+                            }
+                            continue 'next_word;
+                        }
+                    }
+                    // found a non-codable spot, try split3
+                    if strs.len() < 3 && pos + split3 < input.len() {
+                        if split1 == 18 && split2 == 19 && split3 == 10 {
+                            println!("hit");
+                        }
+                        let str3 = &input[pos..(pos + split3)];
+                        if encode(str3).len() <= 20 && subs.len() <= 11 {
+                            strs.push(str3);
+                            // new str will be picked up on next loop
+                            println!("{} {} {}", str1, str2, str3);
+                            continue 'next_word;
+                        }
+                    }
+                    continue 'split2;
+                }
+                // encoded all words.
+                use std::fmt::Write;
+                let mut output = String::new();
+                writeln!(
+                    &mut output,
+                    "{}",
+                    subs.iter()
+                        .map(|&i| std::char::from_u32('A' as u32 + i as u32).unwrap())
+                        .join(",")
+                );
+                writeln!(&mut output, "{}", encode(strs[0]));
+                writeln!(&mut output, "{}", encode(strs[1]));
+                writeln!(&mut output, "{}", encode(strs[2]));
+                result.push(output);
+            }
+        }
+    }
+    result
+}
+
+#[test]
+fn test_compress() {
+    let s: String = "R,8,R,8,R,4,R,4,R,8,L,6,L,2,R,4,R,4,R,8,R,8,R,8,L,6,L,2"
+        .chars()
+        .flat_map(|c| -> Box<dyn Iterator<Item = char>> {
+            match c {
+                'R' | 'L' => Box::new(std::iter::once(c)),
+                ',' => Box::new(std::iter::empty()),
+                i => Box::new(std::iter::repeat('F').take(i.to_digit(10).unwrap() as usize)),
+            }
+        })
+        .collect();
+    assert_eq!(vec![String::from("")], compress(&s));
+}
+
+fn encode(word: &str) -> String {
+    let mut output = Vec::new();
+    let mut effs = 0;
+    for c in word.chars() {
+        if c == 'F' {
+            effs += 1
+        } else {
+            if effs > 0 {
+                output.push(format!("{}", effs));
+            }
+            effs = 0;
+            output.push(c.to_string());
+        }
+    }
+    if effs > 0 {
+        output.push(format!("{}", effs));
+    }
+    output.join(",")
+}
 
 enum Dir {
     North,
     South,
     East,
-    West
+    West,
 }
 
 impl Dir {
@@ -247,7 +415,7 @@ impl Dir {
 }
 
 struct Bot {
-    pos: (isize,isize),
+    pos: (isize, isize),
     dir: Dir,
 }
 
@@ -276,13 +444,13 @@ trait Pos {
     fn to_dir(&self, dir: &Dir) -> Self;
 }
 
-impl Pos for (isize,isize) {
+impl Pos for (isize, isize) {
     fn to_dir(&self, dir: &Dir) -> Self {
         match dir {
-            Dir::North => (self.0,self.1-1),
-            Dir::South => (self.0,self.1+1),
-            Dir::West => (self.0-1,self.1),
-            Dir::East => (self.0+1,self.1),
+            Dir::North => (self.0, self.1 - 1),
+            Dir::South => (self.0, self.1 + 1),
+            Dir::West => (self.0 - 1, self.1),
+            Dir::East => (self.0 + 1, self.1),
         }
     }
 }
