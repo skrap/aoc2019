@@ -164,14 +164,17 @@ impl IntComp {
 use itertools::Itertools;
 use std::collections::HashMap;
 
+fn output_to_string(comp: &mut IntComp) -> String {
+    comp.output
+        .drain(..)
+        .map(|c| std::char::from_u32(c as u32).unwrap())
+        .collect::<String>()
+}
+
 fn run_part1(mem: Vec<isize>) {
     let mut comp = IntComp::new(mem.clone(), &[]);
     while let State::Run = comp.step() {}
-    let map = comp
-        .output
-        .drain(..)
-        .map(|c| std::char::from_u32(c as u32).unwrap())
-        .collect::<String>();
+    let map = output_to_string(&mut comp);
     println!("{}", &map);
     let mut scaffolds = HashMap::new();
     let mut max = (0isize, 0isize);
@@ -222,68 +225,24 @@ fn run_part1(mem: Vec<isize>) {
         dirs.len(),
         dirs
     );
-    let compressed = compress(&dirs).pop().unwrap();
+    let compressed = dbg!(compress(&dirs).pop().unwrap());
 
     comp.mem[0] = 2;
     comp.input.extend(compressed.chars().map(|c| c as isize));
     comp.input.extend(['n' as isize, '\n' as isize].iter());
     while let State::Run = comp.step() {}
-    println!("final output = {:?}", comp.output);
-}
-
-fn compress1(input: &str) -> String {
-    let mut sections: Vec<&str> = Vec::new();
-    let mut words: Vec<&str> = Vec::new();
-    sections.push(input);
-    loop {
-        sections.sort_by_key(|s| s.len());
-        if let Some(section) = sections.last() {
-            let (word, score) = (1..=(section.len()))
-                .map(|len| {
-                    let substr = &section[0..len];
-                    let count = sections
-                        .iter()
-                        .map(|sect| sect.match_indices(substr).count())
-                        .sum::<usize>();
-                    let score = substr.chars().filter(|&c| c != 'F').count();
-                    (substr, score)
-                })
-                .filter(|(substr, score)| encode(substr).len() < 20)
-                .max_by_key(|(_, score)| *score)
-                .unwrap();
-            words.push(word);
-            sections = sections
-                .iter()
-                .map(|sect| sect.split(word).filter(|&sect| sect != ""))
-                .flatten()
-                .collect();
-        } else {
-            break;
+    let mut answer = None;
+    if let Some(c) = comp.output.back() {
+        if *c > 256 {
+            answer = Some(*c);
+            comp.output.pop_back();
         }
     }
-
-    let mut output = String::new();
-    use std::fmt::Write;
-    for word in &words {
-        writeln!(&mut output, "{}", encode(word));
-    }
-    let mut pos = 0;
-    'outer: while pos < input.len() {
-        for (i, word) in words.iter().enumerate() {
-            if input[pos..].starts_with(word) {
-                let cmd = std::char::from_u32(65 + i as u32).unwrap();
-                write!(&mut output, "{}{}", if pos > 0 { "," } else { "" }, cmd);
-                pos += word.len();
-                continue 'outer;
-            }
-        }
-        panic!("unknown sequence: {}", &input[pos..]);
-    }
-    writeln!(&mut output);
-    println!("{}", output);
-    output
+    println!("final output\n{}", output_to_string(&mut comp));
+    println!("Answer: {:?}", answer);
 }
 
+// finds all possible compressions of `input`
 fn compress(input: &str) -> Vec<String> {
     let mut result = Vec::new();
     let max1 = (1..input.len())
@@ -295,63 +254,84 @@ fn compress(input: &str) -> Vec<String> {
             .rev()
             .find(|len| encode(&input[split1..(split1 + len)]).len() <= 20)
         {
-            let (str1, rest) = input.split_at(split1);
+            let (str1, mut rest) = input.split_at(split1);
+            while rest.starts_with(str1) {
+                rest = &rest[str1.len()..];
+            }
 
-            'split2: for (split2, split3) in (1..max2).rev().cartesian_product(1..input.len() / 2) {
+            for (split2, split3) in (1..max2).rev().cartesian_product(1..input.len() / 2) {
                 if split1 + split2 + split3 > input.len() {
                     continue;
                 }
                 let (str2, _rest) = rest.split_at(split2);
-                let mut strs = vec![str1, str2];
-                let mut subs = Vec::new();
-
-                let mut pos = 0;
-
                 if encode(str1).len() > 20 || encode(str2).len() > 20 {
                     continue;
                 }
 
-                // encode a word
-                'next_word: while pos < input.len() {
-                    for (i, s) in strs.iter().enumerate() {
-                        if input[pos..].starts_with(s) {
-                            pos += s.len();
-                            subs.push(i);
-                            if subs.len() > 11 {
-                                continue 'split2;
-                            }
-                            continue 'next_word;
-                        }
-                    }
-                    // found a non-codable spot, try split3
-                    if strs.len() < 3 && pos + split3 < input.len() {
-                        if split1 == 18 && split2 == 19 && split3 == 10 {
-                            println!("hit");
-                        }
-                        let str3 = &input[pos..(pos + split3)];
-                        if encode(str3).len() <= 20 && subs.len() <= 11 {
-                            strs.push(str3);
-                            // new str will be picked up on next loop
-                            println!("{} {} {}", str1, str2, str3);
-                            continue 'next_word;
-                        }
-                    }
-                    continue 'split2;
+                let mut tasks = VecDeque::new();
+                struct Coder<'a> {
+                    pos: usize,
+                    strs: Vec<&'a str>,
+                    subs: Vec<u8>,
                 }
-                // encoded all words.
-                use std::fmt::Write;
-                let mut output = String::new();
-                writeln!(
-                    &mut output,
-                    "{}",
-                    subs.iter()
-                        .map(|&i| std::char::from_u32('A' as u32 + i as u32).unwrap())
-                        .join(",")
-                );
-                writeln!(&mut output, "{}", encode(strs[0]));
-                writeln!(&mut output, "{}", encode(strs[1]));
-                writeln!(&mut output, "{}", encode(strs[2]));
-                result.push(output);
+                tasks.push_back(Coder {
+                    pos: 0,
+                    strs: vec![str1, str2],
+                    subs: vec![],
+                });
+
+                while let Some(Coder {
+                    mut pos,
+                    mut strs,
+                    mut subs,
+                }) = tasks.pop_front()
+                {
+                    // encode words
+                    if pos < input.len() {
+                        let mut noncodable = true;
+                        for (i, s) in strs.iter().enumerate() {
+                            if input[pos..].starts_with(s) {
+                                noncodable = false;
+                                pos += s.len();
+                                subs.push(i as u8);
+                                if subs.len() <= 11 {
+                                    tasks.push_front(Coder {
+                                        pos,
+                                        strs: strs.clone(),
+                                        subs: subs.clone(),
+                                    });
+                                }
+                            }
+                        }
+                        if noncodable {
+                            // found a non-codable spot, try split3
+                            if strs.len() < 3 && pos + split3 < input.len() {
+                                let str3 = &input[pos..(pos + split3)];
+                                if encode(str3).len() <= 20 && subs.len() <= 11 {
+                                    strs.push(str3);
+                                    tasks.push_front(Coder { pos, strs, subs });
+                                    // new str will be picked up on next loop
+                                    // println!("{} {} {}", str1, str2, str3);
+                                }
+                            }
+                        }
+                    } else {
+                        // encoded all words.
+                        use std::fmt::Write;
+                        let mut output = String::new();
+                        writeln!(
+                            &mut output,
+                            "{}",
+                            subs.iter()
+                                .map(|&i| std::char::from_u32('A' as u32 + i as u32).unwrap())
+                                .join(",")
+                        );
+                        writeln!(&mut output, "{}", encode(strs[0]));
+                        writeln!(&mut output, "{}", encode(strs[1]));
+                        writeln!(&mut output, "{}", encode(strs[2]));
+                        result.push(output);
+                    }
+                }
             }
         }
     }
@@ -370,7 +350,9 @@ fn test_compress() {
             }
         })
         .collect();
-    assert_eq!(vec![String::from("")], compress(&s));
+    assert!(compress(&s).contains(&String::from(
+        "A,B,C,B,A,C\nR,8,R,8\nR,4,R,4,R,8\nL,6,L,2\n"
+    )));
 }
 
 fn encode(word: &str) -> String {
@@ -403,10 +385,10 @@ enum Dir {
 impl Dir {
     fn to_left(&self) -> Dir {
         match self {
-            Dir::North => Dir::East,
-            Dir::East => Dir::South,
-            Dir::South => Dir::West,
-            Dir::West => Dir::North,
+            Dir::North => Dir::West,
+            Dir::West => Dir::South,
+            Dir::South => Dir::East,
+            Dir::East => Dir::North,
         }
     }
     fn to_right(&self) -> Dir {
