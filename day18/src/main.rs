@@ -116,14 +116,14 @@ fn do_part1(input: &str) {
     while let Some((_, _, have, need, at_key, traveled, path)) = tasks.pop() {
         iters += 1;
 
-        if let Some(&memoed) = best.get(&(need,at_key)) {
+        if let Some(&(memoed,_)) = best.get(&(need,at_key)) {
             if memoed <= traveled {
                 continue;
             }
         }
+        best.insert((need,at_key), (traveled,path.clone()));
         
         if need == 0 {
-            best.insert((need,at_key), traveled);
             println!(
                 "New best: {}, {}",
                 traveled,
@@ -131,7 +131,6 @@ fn do_part1(input: &str) {
             );
             continue;
         }
-        best.insert((need,at_key), traveled);
 
         for key in key_min..=key_max {
             let mask = key_mask(key);
@@ -144,25 +143,11 @@ fn do_part1(input: &str) {
                     let new_traveled = traveled + key_key_dist;
                     let new_need = need & !mask;
                     let new_have = have | mask;
-                    let optimistic_route : usize = (key_min..=key_max).filter_map(|to_key| {
-                        if new_need & key_mask(to_key) != 0 {
-                            // if to_key is needed, check the best we could possibly do to get there.
-                            (key_min..=key_max).filter_map(|from_key| {
-                                if new_have & key_mask(from_key) != 0 {
-                                    Some(get_dist(from_key,to_key))
-                                } else {
-                                    None
-                                }
-                            }).min()
-                        } else {
-                            None
-                        }
-                    }).sum();
                     let mut path = path.clone();
                     path.push(key);
                     tasks.push((
                         path.len(),
-                        usize::max_value() - new_traveled - optimistic_route, // best we could ever do.
+                        usize::max_value() - new_traveled, // best we could ever do.
                         new_have,
                         new_need,
                         key,
@@ -174,6 +159,9 @@ fn do_part1(input: &str) {
         }
     }
     println!("done {} tasks", iters);
+    let (_,winner) = best.iter().filter(|((needs,_),_)| *needs == 0)
+    .min_by_key(|(_,(traveled,_))| traveled).unwrap();
+    println!("best path {}, {} steps", std::str::from_utf8(&winner.1).unwrap(), winner.0);
 }
 
 fn do_part1_old(input: &str) {
