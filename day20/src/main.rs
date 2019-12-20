@@ -3,8 +3,15 @@ use std::collections::{HashMap, VecDeque};
 fn main() {
     let input = include_bytes!("input.txt");
     let map = Map::new(input);
-    do_part1(map.clone());
-    do_part2(map.clone());
+    println!(
+        "Part 1 best to ZZ: {}",
+        do_part1(map.clone(), map.start_pos, map.end_pos).unwrap().0
+    );
+    println!(
+        "Part 2 example best to ZZ: {}",
+        do_part2(Map::new(include_bytes!("part2_example.txt")))
+    );
+    println!("Part 2 best to ZZ: {}", do_part2(map.clone()));
 }
 
 type Pos = (isize, isize);
@@ -113,64 +120,77 @@ impl PosStuff for Pos {
     }
 }
 
-fn do_part1(map: Map) {
-    let mut best = HashMap::new();
-    let mut tasks = VecDeque::new();
-    tasks.push_back((map.start_pos, 0));
-
-    while let Some((pos, traveled)) = tasks.pop_back() {
-        if let Some(before) = best.get(&pos) {
-            if *before <= traveled {
-                continue;
-            }
-        }
-        best.insert(pos, traveled);
-
-        for step in &[pos.down(), pos.left(), pos.right(), pos.up()] {
-            if map.at(pos) == b'.' {
-                tasks.push_back((*step, traveled + 1));
-            }
-        }
-        if let Some((step, _levelmod)) = map.use_portal(pos) {
-            tasks.push_back((step, traveled + 1));
-        }
-    }
-
-    println!("Part 1 best to ZZ: {}", best.get(&map.end_pos).unwrap());
+fn do_part1(map: Map, start: Pos, end: Pos) -> Option<(usize, isize)> {
+    do_reachables(&map, start, true).get(&end).copied()
 }
 
-fn do_part2(map: Map) -> bool {
+fn do_reachables(map: &Map, start: Pos, portals: bool) -> HashMap<Pos, (usize, isize)> {
     let mut best = HashMap::new();
     let mut tasks = VecDeque::new();
-    tasks.push_back((map.start_pos, 0, 0, HashMap::new()));
+    tasks.push_back((start, 0, 0));
 
-    while let Some((pos, level, traveled, mut gates)) = tasks.pop_back() {
-        if let Some(before) = best.get(&(pos, level)) {
+    while let Some((pos, traveled, level)) = tasks.pop_back() {
+        if let Some((before, _level)) = best.get(&pos) {
             if *before <= traveled {
                 continue;
             }
         }
-        best.insert((pos, level), traveled);
+        best.insert(pos, (traveled, level));
 
         for step in &[pos.down(), pos.left(), pos.right(), pos.up()] {
             if map.at(pos) == b'.' {
-                tasks.push_back((*step, level, traveled + 1, gates.clone()));
+                tasks.push_back((*step, traveled + 1, level));
             }
         }
-        if let Some((step, levelmod)) = map.use_portal(pos) {
-            let gate_times = gates.entry(pos).or_insert(0);
-            *gate_times += 1;
-            tasks.push_back((step, level + levelmod, traveled + 1, gates));
+        if portals {
+            if let Some((step, levelmod)) = map.use_portal(pos) {
+                tasks.push_back((step, traveled + 1, level + levelmod));
+            }
         }
     }
-    if let Some(best) = best.get(&(map.end_pos, 0)) {
-        println!(
-            "Part 2 best to ZZ: {}",
-            best
-        );
-        true
-    } else {
-        println!("no route to ZZ");
-        false
+
+    best
+}
+
+fn do_part2(map: Map) -> usize {
+    use std::cmp::Reverse;
+    use std::collections::BinaryHeap;
+    let mut reachables: HashMap<Pos, _> = HashMap::new();
+
+    let mut tasks = BinaryHeap::new();
+    tasks.push(Reverse((0, 0, map.start_pos)));
+
+    let mut best = HashMap::new();
+
+    while let Some(Reverse((level, dist, pos))) = tasks.pop() {
+        if let Some(&best_dist) = best.get(&(pos, level)) {
+            if best_dist <= dist {
+                continue;
+            }
+        }
+        best.insert((pos, level), dist);
+
+        let entry = reachables.entry(pos).or_insert_with(|| {
+            // find the traveled dist from start_pos to all portals
+            let mut result: Vec<(Pos, usize, isize)> = Vec::new();
+            let from_start = do_reachables(&map, pos, false);
+            for (&end_pos, &portaled_pos) in map.portals.iter() {
+                if let Some(&(traveled, shouldbezero)) = from_start.get(&end_pos) {
+                    let (_, levelmod) = map.use_portal(end_pos).unwrap();
+                    assert_eq!(shouldbezero, 0);
+                    result.push((end_pos, traveled, 0));
+                    result.push((portaled_pos, traveled + 1, levelmod));
+                }
+            }
+            result
+        });
+
+        for &(newpos, dist_mod, level_mod) in entry.iter() {
+            if level + level_mod >= 0 && dist_mod > 0 {
+                tasks.push(Reverse((level + level_mod, dist + dist_mod, newpos)));
+            }
+        }
     }
+
+    *best.get(&(map.end_pos, 0)).unwrap()
 }
