@@ -18,45 +18,151 @@ impl Map {
                 .get(pos.1 as usize * self.width + pos.0 as usize)
         }
     }
+    fn set(&mut self, pos: &Pos, tile: Tile) {
+        self.backing[pos.1 as usize * self.width + pos.0 as usize] = tile;
+    }
 }
 
 fn main() {
-    do_part1(
-        r"########################
-    #...............b.C.D.f#
-    #.######################
-    #.....@.a.B.c.d.A.e.F.g#
-    ########################
-    ",
-    );
-    do_part1(
-        r"#################
-    #i.G..c...e..H.p#
-    ########.########
-    #j.A..b...f..D.o#
-    ########@########
-    #k.E..a...g..B.n#
-    ########.########
-    #l.F..d...h..C.m#
-    #################",
-    );
-    do_part1(
-        r"########################
-    #@..............ac.GI.b#
-    ###d#e#f################
-    ###A#B#C################
-    ###g#h#i################
-    ########################
-    ",
-    );
-    do_part1(include_str!("input.txt"));
-    //     let (map, start) = parse(
-    //         r"#########
-    // #b.A.@.a#
-    // #########
+    // do_part1(
+    //     r"########################
+    // #...............b.C.D.f#
+    // #.######################
+    // #.....@.a.B.c.d.A.e.F.g#
+    // ########################
     // ",
-    //     );
-    //     dbg!(reachability(start, &map, &HashSet::new()));
+    // );
+    // do_part1(
+    //     r"#################
+    // #i.G..c...e..H.p#
+    // ########.########
+    // #j.A..b...f..D.o#
+    // ########@########
+    // #k.E..a...g..B.n#
+    // ########.########
+    // #l.F..d...h..C.m#
+    // #################",
+    // );
+    // do_part1(
+    //     r"########################
+    // #@..............ac.GI.b#
+    // ###d#e#f################
+    // ###A#B#C################
+    // ###g#h#i################
+    // ########################
+    // ",
+    // );
+    // do_part1(include_str!("input.txt"));
+    do_part2(include_str!("input.txt"));
+}
+
+fn do_part2(input: &str) {
+    let (mut map, mid_pos) = parse(input);
+    let deps = make_deps(mid_pos, &map);
+    let (&key_min, &key_max) = deps.keys().minmax().into_option().unwrap();
+    let key_mask = |k: u8| -> u32 { 1 << (k - key_min) as u32 };
+
+    map.set(&mid_pos, Tile::Wall);
+    map.set(&mid_pos.up(), Tile::Wall);
+    map.set(&mid_pos.down(), Tile::Wall);
+    map.set(&mid_pos.left(), Tile::Wall);
+    map.set(&mid_pos.right(), Tile::Wall);
+    let start_1 = mid_pos.up().left();
+    let start_2 = mid_pos.up().right();
+    let start_3 = mid_pos.down().left();
+    let start_4 = mid_pos.down().right();
+
+    let mut tasks: BinaryHeap<(u32, u32, [Pos; 4], usize)> = BinaryHeap::new();
+    let mut all_keys = 0;
+    for key in deps.keys() {
+        all_keys |= key_mask(*key);
+    }
+
+    let dep_masks = deps
+        .iter()
+        .map(|(k, (_, _, key_deps))| {
+            (k, {
+                let mut all_keys = 0;
+                for key in key_deps {
+                    all_keys |= key_mask(*key);
+                }
+                all_keys
+            })
+        })
+        .collect::<HashMap<_, _>>();
+    let mut iters = 0;
+    let mut best_soln = None;
+    let mut best: HashMap<(u32, Pos), usize> = HashMap::new();
+    tasks.push((0, 0, [start_1, start_2, start_3, start_4], 0));
+    while let Some((_, have, bots_pos, traveled)) = tasks.pop() {
+        iters += 1;
+        if (iters % 10000) == 0 {
+            println!("iter {} traveled {} have {:02}/{:02}", iters, traveled, have.count_ones(), all_keys.count_ones());
+        }
+        if let Some(soln) = best_soln {
+            if traveled >= soln {
+                continue;
+            }
+        }
+        let other_is_better = |bot_pos: &Pos| {
+            if let Some(&memoed) = best.get(&(have, *bot_pos)) {
+                if memoed <= traveled {
+                    return true;
+                }
+            }
+            false
+        };
+        if bots_pos.iter().all(other_is_better) {
+            continue;
+        }
+        for bot_pos in &bots_pos {
+            best.insert((have, *bot_pos), traveled);
+        }
+        if all_keys == have {
+            println!("New best: {}", traveled);
+            best_soln = Some(traveled);
+            continue;
+        }
+
+        let get_steps = |pos: &Pos| vec![pos.up(), pos.down(), pos.left(), pos.right(), *pos];
+        'step: for step in bots_pos
+            .iter()
+            .map(|one_bot_pos| get_steps(one_bot_pos).into_iter())
+            .multi_cartesian_product()
+        {
+            let tiles = step.iter().map(|s| map.get(s));
+            let mut new_have = have;
+            for tile in tiles {
+                match tile {
+                    Some(Tile::Wall) => continue 'step,
+                    Some(Tile::Space) => (),
+                    Some(Tile::Door(k)) => {
+                        if new_have & (key_mask(*k)) == 0 {
+                            continue 'step;
+                        }
+                    }
+                    Some(Tile::Key(k)) => {
+                        //println!("got key {}", k);
+                        new_have |= key_mask(*k)
+                    }
+                    None => continue 'step, // off da map
+                }
+            }
+            use std::convert::TryInto;
+            tasks.push((
+                new_have.count_ones(),
+                new_have,
+                step[..].try_into().unwrap(),
+                traveled + 1,
+            ));
+        }
+    }
+    println!("done {} tasks", iters);
+    let winner = best
+        .iter()
+        .filter(|((needs, _), _)| *needs == 0)
+        .min_by_key(|(_, &traveled)| traveled);
+    println!("best path {:?} steps", winner);
 }
 
 fn do_part1(input: &str) {
@@ -84,11 +190,11 @@ fn do_part1(input: &str) {
             })
         })
         .collect::<HashMap<_, _>>();
-        
+
     // precompute all the key-to-key distances
     let mut dists = Vec::new();
     let num_keys = (key_max - key_min + 1) as usize;
-    dists.resize(num_keys*num_keys, 0);
+    dists.resize(num_keys * num_keys, 0);
     for (from_key, (pos, from_start_dist, key_deps)) in deps.iter() {
         if key_deps.is_empty() {
             tasks.push((
@@ -103,12 +209,12 @@ fn do_part1(input: &str) {
         }
         let key_deps = make_deps(*pos, &map);
         for (to_key, (_, key_dist, _)) in key_deps.iter() {
-            dists[(*from_key - key_min) as usize * num_keys + (*to_key - key_min) as usize] = *key_dist;
+            dists[(*from_key - key_min) as usize * num_keys + (*to_key - key_min) as usize] =
+                *key_dist;
         }
     }
-    
     let get_dist = move |from_key, to_key| -> usize {
-        dists[(from_key-key_min) as usize * num_keys + (to_key-key_min) as usize]
+        dists[(from_key - key_min) as usize * num_keys + (to_key - key_min) as usize]
     };
 
     let mut iters = 0;
@@ -116,13 +222,12 @@ fn do_part1(input: &str) {
     while let Some((_, _, have, need, at_key, traveled, path)) = tasks.pop() {
         iters += 1;
 
-        if let Some(&(memoed,_)) = best.get(&(need,at_key)) {
+        if let Some(&(memoed, _)) = best.get(&(need, at_key)) {
             if memoed <= traveled {
                 continue;
             }
         }
-        best.insert((need,at_key), (traveled,path.clone()));
-        
+        best.insert((need, at_key), (traveled, path.clone()));
         if need == 0 {
             println!(
                 "New best: {}, {}",
@@ -139,7 +244,7 @@ fn do_part1(input: &str) {
                 let need_deps = dep_masks.get(&key).unwrap();
                 if (need_deps & !have) == 0 {
                     // we can get `key`
-                    let key_key_dist = get_dist(at_key,key);
+                    let key_key_dist = get_dist(at_key, key);
                     let new_traveled = traveled + key_key_dist;
                     let new_need = need & !mask;
                     let new_have = have | mask;
@@ -159,9 +264,16 @@ fn do_part1(input: &str) {
         }
     }
     println!("done {} tasks", iters);
-    let (_,winner) = best.iter().filter(|((needs,_),_)| *needs == 0)
-    .min_by_key(|(_,(traveled,_))| traveled).unwrap();
-    println!("best path {}, {} steps", std::str::from_utf8(&winner.1).unwrap(), winner.0);
+    let (_, winner) = best
+        .iter()
+        .filter(|((needs, _), _)| *needs == 0)
+        .min_by_key(|(_, (traveled, _))| traveled)
+        .unwrap();
+    println!(
+        "best path {}, {} steps",
+        std::str::from_utf8(&winner.1).unwrap(),
+        winner.0
+    );
 }
 
 fn do_part1_old(input: &str) {
