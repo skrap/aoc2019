@@ -67,7 +67,7 @@ impl Map {
 
     fn use_portal(&self, pos: Pos) -> Option<(Pos, isize)> {
         let levelmod =
-            if (5..(self.width - 5)).contains(&pos.0) || (5..(self.height - 5)).contains(&pos.1) {
+            if (5..(self.width - 5)).contains(&pos.0) && (5..(self.height - 5)).contains(&pos.1) {
                 1
             } else {
                 -1
@@ -161,25 +161,47 @@ fn do_part2(map: Map) -> usize {
     tasks.push(Reverse((0, 0, map.start_pos)));
 
     let mut best = HashMap::new();
+    let mut best_finish = None;
 
-    while let Some(Reverse((level, dist, pos))) = tasks.pop() {
+    while let Some(Reverse((dist, level, pos))) = tasks.pop() {
+        if let Some(prev_best) = best_finish {
+            if prev_best <= dist {
+                continue; // stop searching if we've solved it in fewer steps.
+            }
+        }
+
         if let Some(&best_dist) = best.get(&(pos, level)) {
             if best_dist <= dist {
                 continue;
             }
         }
+        // println!(
+        //     "new best to {} level {}: {}",
+        //     std::str::from_utf8(&map.portal_name_at(pos).unwrap()).unwrap(),
+        //     level,
+        //     dist
+        // );
+
         best.insert((pos, level), dist);
+        if pos == map.end_pos && level == 0 {
+            println!("new best finish: {}", dist);
+            best_finish = Some(dist);
+        }
 
         let entry = reachables.entry(pos).or_insert_with(|| {
             // find the traveled dist from start_pos to all portals
             let mut result: Vec<(Pos, usize, isize)> = Vec::new();
             let from_start = do_reachables(&map, pos, false);
-            for (&end_pos, &portaled_pos) in map.portals.iter() {
-                if let Some(&(traveled, shouldbezero)) = from_start.get(&end_pos) {
-                    let (_, levelmod) = map.use_portal(end_pos).unwrap();
-                    assert_eq!(shouldbezero, 0);
+            for (&end_pos, &(traveled, shouldbezero)) in from_start.iter() {
+                assert_eq!(shouldbezero, 0);
+                if pos == end_pos {
+                    continue;
+                }
+                if map.portal_name_at(end_pos).is_some() {
                     result.push((end_pos, traveled, 0));
-                    result.push((portaled_pos, traveled + 1, levelmod));
+                    if let Some((portaled_pos, levelmod)) = map.use_portal(end_pos) {
+                        result.push((portaled_pos, traveled + 1, levelmod));
+                    }
                 }
             }
             result
@@ -187,7 +209,7 @@ fn do_part2(map: Map) -> usize {
 
         for &(newpos, dist_mod, level_mod) in entry.iter() {
             if level + level_mod >= 0 && dist_mod > 0 {
-                tasks.push(Reverse((level + level_mod, dist + dist_mod, newpos)));
+                tasks.push(Reverse((dist + dist_mod, level + level_mod, newpos)));
             }
         }
     }
