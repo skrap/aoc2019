@@ -8,7 +8,6 @@ edition = "2018"
 
 [dependencies]
 itertools = "*"
-rand = "*"
 
 [profile.release]
 debug = true

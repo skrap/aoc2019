@@ -7,6 +7,7 @@ type Pos = (isize, isize);
 struct Map {
     backing: Vec<Tile>,
     width: usize,
+    keys: HashMap<u8, Pos>,
 }
 
 impl Map {
@@ -24,35 +25,7 @@ impl Map {
 }
 
 fn main() {
-    // do_part1(
-    //     r"########################
-    // #...............b.C.D.f#
-    // #.######################
-    // #.....@.a.B.c.d.A.e.F.g#
-    // ########################
-    // ",
-    // );
-    // do_part1(
-    //     r"#################
-    // #i.G..c...e..H.p#
-    // ########.########
-    // #j.A..b...f..D.o#
-    // ########@########
-    // #k.E..a...g..B.n#
-    // ########.########
-    // #l.F..d...h..C.m#
-    // #################",
-    // );
-    // do_part1(
-    //     r"########################
-    // #@..............ac.GI.b#
-    // ###d#e#f################
-    // ###A#B#C################
-    // ###g#h#i################
-    // ########################
-    // ",
-    // );
-    // do_part1(include_str!("input.txt"));
+    do_part1(include_str!("input.txt"));
     do_part2(include_str!("input.txt"));
 }
 
@@ -72,7 +45,7 @@ fn do_part2(input: &str) {
     let start_3 = mid_pos.down().left();
     let start_4 = mid_pos.down().right();
 
-    let mut tasks: BinaryHeap<(u32, usize, u32, [Pos; 4], usize)> = BinaryHeap::new();
+    let mut tasks = BinaryHeap::new();
     let mut all_keys = 0;
     for key in deps.keys() {
         all_keys |= key_mask(*key);
@@ -90,93 +63,171 @@ fn do_part2(input: &str) {
             })
         })
         .collect::<HashMap<_, _>>();
-    let mut iters = 0;
-    let mut stat_useful = (0, 0);
-    let mut best_soln = None;
-    let mut best: HashMap<(u32, Pos), usize> = HashMap::new();
-    tasks.push((0, 0, 0, [start_1, start_2, start_3, start_4], 0));
-    while let Some((_, _, have, bots_pos, traveled)) = tasks.pop() {
-        stat_useful.1 += 1;
-        iters += 1;
-        if iters%100_000 == 0 {
-            println!(
-                "iter {} traveled {} have {:02}/{:02}, {}% useful",
-                iters,
-                traveled,
-                have.count_ones(),
-                all_keys.count_ones(),
-                100 * stat_useful.0 / stat_useful.1
-            );
+
+    let start_pos = [start_1, start_2, start_3, start_4];
+    // cache all the (pos,pos) -> distance
+    let mut dists = HashMap::new();
+    for from_pos in start_pos.iter().chain(map.keys.values()) {
+        let key_deps = make_deps(*from_pos, &map);
+        for (to_key, (to_key_pos, to_key_dist, _)) in key_deps {
+            dists.insert((from_pos, to_key_pos), to_key_dist);
         }
-        if let Some(soln) = best_soln {
-            if traveled >= soln {
+    }
+
+    tasks.push((0, 0, 0, start_pos, 0));
+    let mut iters = 0;
+    let mut best = HashMap::new();
+    let mut best_soln = None;
+    while let Some((_, _, have, bots_posns, traveled)) = tasks.pop() {
+        iters += 1;
+        if let Some(older) = best_soln {
+            if older <= traveled {
                 continue;
             }
         }
-        let other_is_better = |bot_pos: &Pos| {
-            if let Some(&memoed) = best.get(&(have, *bot_pos)) {
-                if memoed <= traveled {
-                    return true;
-                }
+        if let Some(&older) = best.get(&(have, bots_posns)) {
+            if older <= traveled {
+                continue;
             }
-            false
-        };
-        if bots_pos.iter().all(other_is_better) {
-            continue;
         }
-        stat_useful.0 += 1;
-
-        for bot_pos in &bots_pos {
-            best.insert((have, *bot_pos), traveled);
-        }
-        if all_keys == have {
+        best.insert((have, bots_posns), traveled);
+        if have == all_keys {
             println!("New best: {}", traveled);
             best_soln = Some(traveled);
             continue;
         }
 
-        let get_steps = |pos: &Pos| vec![pos.up(), pos.down(), pos.left(), pos.right(), *pos];
-        'step: for step in iproduct!(
-            &get_steps(&bots_pos[0]),
-            &get_steps(&bots_pos[1]),
-            &get_steps(&bots_pos[2]),
-            &get_steps(&bots_pos[3])
-        ) {
-            let step = [*step.0, *step.1, *step.2, *step.3];
-            let tiles = step.iter().map(|s| map.get(s));
-            let mut new_have = have;
-            for tile in tiles {
-                match tile {
-                    Some(Tile::Wall) => continue 'step,
-                    Some(Tile::Space) => (),
-                    Some(Tile::Door(k)) => {
-                        if new_have & (key_mask(*k)) == 0 {
-                            continue 'step;
+        for key in key_min..=key_max {
+            let mask = key_mask(key);
+            if (have & mask) == 0 {
+                // key is needed
+                let need_deps = dep_masks.get(&key).unwrap();
+                if (need_deps & !have) == 0 {
+                    // we can get `key`
+                    let keypos = map.keys.get(&key).unwrap();
+                    for ibot in 0..4 {
+                        if let Some(dist) = dists.get(&(&bots_posns[ibot], *keypos)) {
+                            // ibot can get key
+                            let new_traveled = traveled + dist;
+                            let new_have = have | mask;
+                            let mut new_posns = bots_posns;
+                            new_posns[ibot] = *keypos;
+                            tasks.push((
+                                new_have.count_ones(),
+                                usize::max_value() - new_traveled, // best we could ever do.
+                                new_have,
+                                new_posns,
+                                new_traveled,
+                            ));
                         }
                     }
-                    Some(Tile::Key(k)) => {
-                        //println!("got key {}", k);
-                        new_have |= key_mask(*k)
-                    }
-                    None => continue 'step, // off da map
                 }
             }
-            tasks.push((
-                new_have.count_ones(),
-                usize::max_value() - traveled,
-                new_have,
-                step,
-                traveled + 1,
-            ));
         }
     }
-    println!("done {} tasks", iters);
-    let winner = best
-        .iter()
-        .filter(|((needs, _), _)| *needs == 0)
-        .min_by_key(|(_, &traveled)| traveled);
-    println!("best path {:?} steps", winner);
+    println!("done {} iterations", iters);
+    println!("best path {:?} steps", best_soln);
 }
+
+/// I accidentally implemented part 2 having all robots
+/// move simultaneously.  It's an interesting challenge,
+/// as a robot could need to be moving in anticipation of
+/// being able to reach a key soon.  The shortcut of pre
+/// computing key-to-key distances doesn't work in a 
+/// straightforward way any more.  I'll leave it here for 
+/// posterity.
+/// 
+// fn do_part2(input: &str) {
+//     let (mut map, mid_pos) = parse(input);
+//     let deps = make_deps(mid_pos, &map);
+//     let (&key_min, &key_max) = deps.keys().minmax().into_option().unwrap();
+//     let key_mask = |k: u8| -> u32 { 1 << (k - key_min) as u32 };
+
+//     map.set(&mid_pos, Tile::Wall);
+//     map.set(&mid_pos.up(), Tile::Wall);
+//     map.set(&mid_pos.down(), Tile::Wall);
+//     map.set(&mid_pos.left(), Tile::Wall);
+//     map.set(&mid_pos.right(), Tile::Wall);
+//     let start_1 = mid_pos.up().left();
+//     let start_2 = mid_pos.up().right();
+//     let start_3 = mid_pos.down().left();
+//     let start_4 = mid_pos.down().right();
+
+//     let mut tasks = BinaryHeap::new();
+//     let mut all_keys = 0;
+//     for key in deps.keys() {
+//         all_keys |= key_mask(*key);
+//     }
+
+//     let mut iters = 0;
+//     let mut best_soln = None;
+//     let mut best = HashMap::new();
+//     tasks.push((0, 0, 0u32, [start_1, start_2, start_3, start_4], 0usize));
+//     while let Some((_, _, have, bots_pos, traveled)) = tasks.pop() {
+//         iters += 1;
+//         if iters % 100_000 == 0 {
+//             println!(
+//                 "iter {} traveled {} have {:02}/{:02}",
+//                 iters,
+//                 traveled,
+//                 have.count_ones(),
+//                 all_keys.count_ones(),
+//             );
+//         }
+//         if let Some(soln) = best_soln {
+//             if soln <= traveled {
+//                 continue;
+//             }
+//         }
+
+//         if let Some(&older) = best.get(&(have, bots_pos)) {
+//             if older <= traveled {
+//                 continue;
+//             }
+//         }
+
+//         best.insert((have, bots_pos), traveled);
+//         if all_keys == have {
+//             println!(
+//                 "New best: {}",
+//                 traveled
+//             );
+//             best_soln = Some(traveled);
+//             continue;
+//         }
+
+//         'step: for (step_bot, &step_dir) in
+//             iproduct!((0..4), &[Dir::Up, Dir::Down, Dir::Left, Dir::Right])
+//         {
+//             let mut step = bots_pos;
+//             let new_pos = step[step_bot].dir(step_dir);
+//             step[step_bot] = new_pos;
+//             let mut new_have = have;
+//             match map.get(&new_pos) {
+//                 Some(Tile::Wall) => continue 'step,
+//                 Some(Tile::Space) => (),
+//                 Some(Tile::Door(k)) => {
+//                     if new_have & (key_mask(*k)) == 0 {
+//                         continue 'step;
+//                     }
+//                 }
+//                 Some(Tile::Key(k)) => {
+//                     //println!("got key {}", k);
+//                     new_have |= key_mask(*k);
+//                 }
+//                 None => continue 'step, // off da map
+//             }
+//             tasks.push((
+//                 traveled,
+//                 new_have.count_ones(),
+//                 new_have,
+//                 step,
+//                 traveled + 1
+//             ));
+//         }
+//     }
+//     println!("best solution {:?} steps", best_soln);
+// }
 
 fn do_part1(input: &str) {
     let (map, start_pos) = parse(input);
@@ -356,6 +407,7 @@ fn parse(input: &str) -> (Map, Pos) {
     let mut result = Vec::new();
     let mut start_pos = None;
     let mut width = None;
+    let mut keys = HashMap::new();
     for (y, line) in input.trim().lines().enumerate() {
         if width.is_none() {
             width = Some(line.trim().len());
@@ -365,7 +417,10 @@ fn parse(input: &str) -> (Map, Pos) {
                 '#' => Tile::Wall,
                 '.' => Tile::Space,
                 c @ 'A'..='Z' => Tile::Door(c.to_ascii_lowercase() as u8),
-                c @ 'a'..='z' => Tile::Key(c as u8),
+                c @ 'a'..='z' => {
+                    keys.insert(c as u8, (x as isize, y as isize));
+                    Tile::Key(c as u8)
+                }
                 '@' => {
                     start_pos = Some((x as isize, y as isize));
                     Tile::Space
@@ -378,12 +433,13 @@ fn parse(input: &str) -> (Map, Pos) {
         Map {
             backing: result,
             width: width.unwrap(),
+            keys,
         },
         start_pos.unwrap(),
     )
 }
 
-#[derive(Eq, PartialEq, Hash)]
+#[derive(Eq, PartialEq, Hash, Copy, Clone)]
 enum Tile {
     Wall,
     Space,
@@ -396,6 +452,15 @@ trait PosMod {
     fn down(&self) -> Self;
     fn left(&self) -> Self;
     fn right(&self) -> Self;
+    fn dir(&self, dir: Dir) -> Self;
+}
+
+#[derive(Copy, Clone)]
+enum Dir {
+    Up,
+    Down,
+    Left,
+    Right,
 }
 
 impl PosMod for Pos {
@@ -410,6 +475,15 @@ impl PosMod for Pos {
     }
     fn right(&self) -> Self {
         (self.0 + 1, self.1)
+    }
+    fn dir(&self, dir: Dir) -> Self {
+        use Dir::*;
+        match dir {
+            Up => self.up(),
+            Down => self.down(),
+            Left => self.left(),
+            Right => self.right(),
+        }
     }
 }
 
