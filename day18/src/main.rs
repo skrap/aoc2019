@@ -1,4 +1,4 @@
-use itertools::Itertools;
+use itertools::{iproduct, Itertools};
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 
@@ -72,7 +72,7 @@ fn do_part2(input: &str) {
     let start_3 = mid_pos.down().left();
     let start_4 = mid_pos.down().right();
 
-    let mut tasks: BinaryHeap<(u32, u32, [Pos; 4], usize)> = BinaryHeap::new();
+    let mut tasks: BinaryHeap<(u32, usize, u32, [Pos; 4], usize)> = BinaryHeap::new();
     let mut all_keys = 0;
     for key in deps.keys() {
         all_keys |= key_mask(*key);
@@ -91,13 +91,22 @@ fn do_part2(input: &str) {
         })
         .collect::<HashMap<_, _>>();
     let mut iters = 0;
+    let mut stat_useful = (0, 0);
     let mut best_soln = None;
     let mut best: HashMap<(u32, Pos), usize> = HashMap::new();
-    tasks.push((0, 0, [start_1, start_2, start_3, start_4], 0));
-    while let Some((_, have, bots_pos, traveled)) = tasks.pop() {
+    tasks.push((0, 0, 0, [start_1, start_2, start_3, start_4], 0));
+    while let Some((_, _, have, bots_pos, traveled)) = tasks.pop() {
+        stat_useful.1 += 1;
         iters += 1;
-        if (iters % 10000) == 0 {
-            println!("iter {} traveled {} have {:02}/{:02}", iters, traveled, have.count_ones(), all_keys.count_ones());
+        if iters%100_000 == 0 {
+            println!(
+                "iter {} traveled {} have {:02}/{:02}, {}% useful",
+                iters,
+                traveled,
+                have.count_ones(),
+                all_keys.count_ones(),
+                100 * stat_useful.0 / stat_useful.1
+            );
         }
         if let Some(soln) = best_soln {
             if traveled >= soln {
@@ -115,6 +124,8 @@ fn do_part2(input: &str) {
         if bots_pos.iter().all(other_is_better) {
             continue;
         }
+        stat_useful.0 += 1;
+
         for bot_pos in &bots_pos {
             best.insert((have, *bot_pos), traveled);
         }
@@ -125,11 +136,13 @@ fn do_part2(input: &str) {
         }
 
         let get_steps = |pos: &Pos| vec![pos.up(), pos.down(), pos.left(), pos.right(), *pos];
-        'step: for step in bots_pos
-            .iter()
-            .map(|one_bot_pos| get_steps(one_bot_pos).into_iter())
-            .multi_cartesian_product()
-        {
+        'step: for step in iproduct!(
+            &get_steps(&bots_pos[0]),
+            &get_steps(&bots_pos[1]),
+            &get_steps(&bots_pos[2]),
+            &get_steps(&bots_pos[3])
+        ) {
+            let step = [*step.0, *step.1, *step.2, *step.3];
             let tiles = step.iter().map(|s| map.get(s));
             let mut new_have = have;
             for tile in tiles {
@@ -148,11 +161,11 @@ fn do_part2(input: &str) {
                     None => continue 'step, // off da map
                 }
             }
-            use std::convert::TryInto;
             tasks.push((
                 new_have.count_ones(),
+                usize::max_value() - traveled,
                 new_have,
-                step[..].try_into().unwrap(),
+                step,
                 traveled + 1,
             ));
         }
