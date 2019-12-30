@@ -5,6 +5,7 @@ fn to_grid(input: &str) -> u32 {
         .filter_map(|c| match c {
             '#' => Some(1),
             '.' => Some(0),
+            '?' => Some(0),
             _ => None,
         })
         .enumerate()
@@ -230,4 +231,11 @@ fn main() {
         grid = next(grid);
     }
     println!("duplicate found: {}", grid);
+
+    let mut levels = vec![0;400];
+    levels[100] = to_grid(input);
+    for _step in 0..200 {
+        levels = next_pt2(&levels);
+    }
+    println!("Total bugs after 200 minutes: {}", levels.iter().map(|&l| l.count_ones()).sum::<u32>());
 }
